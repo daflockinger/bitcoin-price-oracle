@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Bitcoin Price Oracle</title>
+
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js" integrity="sha512-XHDcSyqhOoO2ocB7sKOCJEkUjw/pQCJViP1ynpy+EGh/LggzrP6U/V3a++LQTnZT7sCQKeHRyWHfhN2afjXjCg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis-timeline-graph2d.min.js" integrity="sha512-e7wHjGSu73zD0szO6qaOwIlpco3utvaPyHzjRVsgU34Hw+yzlPXcSC27jlL3ddg0csFbdrx67QWS8pyVVMX10w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis-timeline-graph2d.min.css" integrity="sha512-bbXw0l+sIgE839ldwV4+tEPR4lIelw+Ryj35jm5c6KTgXNJybZJ4DrV+a40zK9kx8pvqNbneG0TGdJBP2jUa4Q==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    <style>
+        html {
+            background-color: #212121;
+            color: #f5f5f5; 
+        }
+
+        h1, b {
+            color: #ff8f00; 
+        }
+
+        .description {
+            text-align: center;
+        }
+
+        .oracle-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #btc-oracle-graph {
+            display: block;
+            min-width: 400px;
+            width: 100%;
+            background-color: #f5f5f5;
+        }
+
+        .historic-line {
+            fill: #212121;
+            fill-opacity: 0;
+            stroke-width: 2px;
+            stroke: #212121;
+        }
+
+        .prediction-line {
+            fill: #64dd17;
+            fill-opacity: 0;
+            stroke-width: 2px;
+            stroke: #64dd17;
+        }
+
+        .quantile-line {
+            fill: #ffab00;
+            fill-opacity: 0;
+            stroke-width: 1px;
+            stroke: #ffab00;
+        }
+
+        .predicted-prices-date {
+            width: 100px;
+        }
+
+        .predicted-prices-table {
+            margin-top: 20px;
+            border-color: #bdbdbd;
+            border-width: 1px;
+            border-style: solid;
+        }
+
+        td {
+            padding-left: 5px;
+            padding-right: 5px;
+        }
+        td:nth-child(odd) {
+            text-align: left;
+            width: 100px;
+        }
+        td:nth-child(even) {
+            text-align: right;
+            width: 200px;
+        }
+
+    </style>
+</head>
+
+<body>
+    <div class="oracle-box">
+        <h1>Bitcoin Price Oracle</h1>
+        <p class="description">
+            Predicts Bitcoin prices for the next 30 days.<br>
+            Next month's BTC price should be between 
+            <b id="lowerPrediction"></b> and <b id="upperPrediction"></b> <b>USD</b>.
+        </p>
+        <div id="btc-oracle-graph"></div>
+
+        <table id="priceTable" class="predicted-prices-table">
+            <thead>
+              <tr>
+                <th class="predicted-prices-date">Date</th>
+                <th>Predicted Bitcoin Price [USD]</th>
+              </tr>
+            </thead>
+            <tbody id="testBody"></tbody>
+        </table>
+    </div>
+
+
+    <script type="text/javascript">
+        let prices = [];
+        fetch('https://e3sehesm0i.execute-api.us-east-1.amazonaws.com/prod')
+                .then(response => 
+                         response.json().then(json => showPredictions(json))
+                    );
+
+        function showPredictions(prices) {
+            console.log(prices);
+
+            const dataset = new vis.DataSet(prices);
+            const groups = new vis.DataSet();
+            groups.add({
+                id: 'historic',
+                content: 'Historic BTC Price',
+                className: 'historic-line'
+                });
+            groups.add({
+                id: 'pred_median',
+                content: 'Predicted future BTC Price',
+                className: 'prediction-line'
+                });
+            groups.add({
+                id: 'pred_q10',
+                content: 'Quantile 10',
+                className: 'quantile-line',
+                options: {
+                    drawPoints: {
+                        enabled: false
+                    }
+                }
+                });
+            groups.add({
+                id: 'pred_q90',
+                content: 'Quantile 90',
+                className: 'quantile-line',
+                options: {
+                    shaded: {
+                        enabled: true,
+                        orientation: 'group',
+                        groupId: 'pred_q10'
+                    },
+                    drawPoints: {
+                        enabled: false
+                    }
+                }
+                });
+
+                const options = {
+                timeAxis: {
+                    scale: 'day',
+                    step: 7
+                },
+                dataAxis: {
+                    left: {
+                        format: function (value) {
+                            return ''+value.toLocaleString('en-GB');
+                            },
+                        title: {
+                            text: "Bitcoin Price [USD]"
+                        }
+                    },
+                },
+                showCurrentTime: false
+            };
+            const container = document.getElementById('btc-oracle-graph');
+            const Graph2d = new vis.Graph2d(container, dataset, groups, options);
+
+            // fill price table
+            const priceTable = document.getElementById("priceTable");
+            for (let index = 0; index < prices.length; index++) {
+                if(prices[index].group === 'pred_median') {
+                    const row = priceTable.insertRow();
+                    const timestamp = row.insertCell(0);
+                    timestamp.innerHTML = prices[index].x;
+                    const price = row.insertCell(1);
+                    price.innerHTML = prices[index].y.toLocaleString('en-GB');
+                }
+            }
+
+            const lowerPrediction = document.getElementById("lowerPrediction");
+            lowerPrediction.innerHTML = prices.filter(it => it.group === 'pred_q10').pop().y.toLocaleString('en-GB');
+            const upperPrediction = document.getElementById("upperPrediction");
+            upperPrediction.innerHTML = prices.filter(it => it.group === 'pred_q90').pop().y.toLocaleString('en-GB');
+        }
+      </script>
+      
+</body>
+
+</html>
